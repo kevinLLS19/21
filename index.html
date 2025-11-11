@@ -1,0 +1,156 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+<title>🚚 Gestor de Entregas Inteligente</title>
+
+<script src="https://cdn.jsdelivr.net/npm/sweetalert2@11"></script>
+<style>
+html, body { height: 100%; margin: 0; font-family: "Poppins", sans-serif; }
+header { background: #4285F4; color: white; text-align: center; padding: 15px; font-size: 22px; font-weight: bold; }
+#sidebar { background: white; padding: 10px; display: flex; flex-direction: column; gap: 10px; border-bottom: 2px solid #ddd; }
+button { padding: 12px; font-size: 16px; border: none; border-radius: 8px; cursor: pointer; color: white; font-weight: 600; }
+#add-location { background: #34A853; }
+#add-link { background: #5C6BC0; }
+#start-route { background: #F4B400; }
+#stop-route { background: #EA4335; }
+#locate-me { background: #1E88E5; }
+#map { flex: 1; width: 100%; height: calc(100vh - 250px); }
+ul { list-style: none; padding: 0; margin: 0; }
+li { padding: 10px; border-bottom: 1px solid #eee; display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; background: #fafafa; border-radius: 6px; cursor: grab; }
+.telefono-link { color: #34A853; text-decoration: none; }
+.btns { display: flex; gap: 5px; }
+.delete-btn, .edit-btn { color: white; border: none; border-radius: 5px; padding: 5px 10px; cursor: pointer; }
+.delete-btn { background: #EA4335; }
+.edit-btn { background: #5C6BC0; }
+</style>
+</head>
+<body>
+<header>🚚 Gestor de Entregas Inteligente</header>
+
+<div id="sidebar">
+  <button id="add-location">🗺️ Agregar desde mapa</button>
+  <button id="add-link">📍 Agregar por enlace</button>
+  <button id="start-route">▶️ Comenzar ruta</button>
+  <button id="stop-route">⏹️ Detener ruta</button>
+  <button id="locate-me">📍 Mi ubicación</button>
+  <ul id="location-list"></ul>
+</div>
+
+<div id="map"></div>
+
+<script>
+let map, userMarker, userPos = null;
+let addingMode = false;
+let markers = [];
+let directionsService;
+let directionsRenderers = [];
+let watchId = null;
+const RADIO_LLEGADA = 0.05; // 50 m
+
+function initMap() {
+  map = new google.maps.Map(document.getElementById("map"), {
+    center: { lat: -12.0464, lng: -77.0428 },
+    zoom: 18,
+    tilt: 60,
+    heading: 0,
+    mapId: "4504f8b37365c3d0",
+    streetViewControl: false,
+    rotateControl: false
+  });
+
+  directionsService = new google.maps.DirectionsService();
+
+  if (navigator.geolocation) {
+    navigator.geolocation.getCurrentPosition(pos => {
+      userPos = { lat: pos.coords.latitude, lng: pos.coords.longitude };
+      initUserMarker(userPos);
+      map.setCenter(userPos);
+    }, () => Swal.fire("Error", "No se pudo acceder a tu ubicación.", "error"));
+  }
+
+  document.getElementById("add-location").addEventListener("click", toggleAgregar);
+  document.getElementById("add-link").addEventListener("click", agregarPorLink);
+  document.getElementById("start-route").addEventListener("click", comenzarRuta);
+  document.getElementById("stop-route").addEventListener("click", detenerRuta);
+  document.getElementById("locate-me").addEventListener("click", centrarUbicacion);
+
+  map.addListener("click", e => { if (addingMode) abrirFormularioEntrega(e.latLng); });
+}
+
+function initUserMarker(pos) {
+  if (userMarker) userMarker.setMap(null);
+
+  userMarker = new google.maps.Marker({
+    position: pos,
+    map,
+    title: "Tu ubicación",
+    icon: {
+      path: google.maps.SymbolPath.FORWARD_CLOSED_ARROW,
+      scale: 8,
+      fillColor: "#4285F4",
+      fillOpacity: 1,
+      strokeWeight: 2,
+      rotation: 0
+    }
+  });
+}
+
+function comenzarRuta() {
+  if (!userPos || markers.length === 0) {
+    Swal.fire("Atención", "Necesitas tu ubicación y al menos una entrega.", "warning");
+    return;
+  }
+
+  Swal.fire("🚗 Navegación iniciada", "El mapa girará y te seguirá en tiempo real.", "success");
+
+  watchId = navigator.geolocation.watchPosition(pos => {
+    const oldPos = userPos;
+    userPos = { lat: pos.coords.latitude, lng: pos.coords.longitude };
+    userMarker.setPosition(userPos);
+
+    if (oldPos) {
+      const dx = userPos.lng - oldPos.lng;
+      const dy = userPos.lat - oldPos.lat;
+      const heading = Math.atan2(dx, dy) * (180 / Math.PI);
+      map.setOptions({ center: userPos, heading: heading, tilt: 60 });
+      userMarker.setIcon({ ...userMarker.getIcon(), rotation: heading });
+    }
+
+    detectarLlegada();
+  }, null, { enableHighAccuracy: true });
+}
+
+function detenerRuta() {
+  if (watchId) {
+    navigator.geolocation.clearWatch(watchId);
+    watchId = null;
+    Swal.fire("Ruta detenida", "Has detenido el seguimiento GPS.", "info");
+  }
+}
+
+function centrarUbicacion() {
+  if (!navigator.geolocation) {
+    Swal.fire("Error", "Tu navegador no soporta geolocalización.", "error");
+    return;
+  }
+  navigator.geolocation.getCurrentPosition(pos => {
+    userPos = { lat: pos.coords.latitude, lng: pos.coords.longitude };
+    initUserMarker(userPos);
+    map.setCenter(userPos);
+    map.setZoom(18);
+    map.setTilt(60);
+    map.setHeading(0);
+    Swal.fire("📍", "Ubicación centrada en tu posición actual.", "success");
+  });
+}
+
+// Aquí puedes añadir las funciones de agregar entregas, rutas y lista como las tenías antes
+// agregarPorLink(), abrirFormularioEntrega(), toggleAgregar(), actualizarLista(), recalcularRuta(), detectarLlegada()
+
+</script>
+
+<script async src="https://maps.googleapis.com/maps/api/js?key=AIzaSyBDZbRuA1KlUYjFXSrmju0gemuX74GLz_E&libraries=geometry&callback=initMap"></script>
+</body>
+</html>
